@@ -1,18 +1,66 @@
 #!/usr/bin/env python3
 """
 3D 模型库 — Flask Web App (可部署到 Render / Railway 等云平台)
-功能: 静态页面 + 预转换STL服务 + 模型文件下载
+功能: 静态页面 + 预转换STL服务 + 模型文件下载 + 定时自动扫描
 """
 
 import os
+import sys
+import subprocess
+import threading
+import time
+import shutil
 from pathlib import Path
 from flask import Flask, send_from_directory, jsonify, abort, Response
 
 app = Flask(__name__, static_folder='static')
 
 # ─── 配置 ────────────────────────────────────────────
-MODELS_DIR = os.path.join(os.path.dirname(__file__), 'models')
-STL_CACHE_DIR = os.path.join(os.path.dirname(__file__), 'stl_cache')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(BASE_DIR, 'models')
+STL_CACHE_DIR = os.path.join(BASE_DIR, 'stl_cache')
+SCAN_INTERVAL = 30 * 60  # 30 分钟
+
+
+# ─── 自动扫描 ─────────────────────────────────────────
+
+def run_scanner():
+    """运行 scan_3d_models.py 重新生成 static/index.html"""
+    scanner = os.path.join(BASE_DIR, 'scan_3d_models.py')
+    if not os.path.isfile(scanner):
+        print("⚠️  scan_3d_models.py 不存在，跳过扫描")
+        return False
+    try:
+        result = subprocess.run(
+            [sys.executable, scanner, MODELS_DIR],
+            capture_output=True, text=True, timeout=120,
+            cwd=BASE_DIR
+        )
+        if result.returncode == 0:
+            # scanner 输出 index.html 到 BASE_DIR
+            src = os.path.join(BASE_DIR, 'index.html')
+            dst = os.path.join(BASE_DIR, 'static', 'index.html')
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+                os.remove(src)
+            lines = result.stdout.strip().split('\n')
+            summary = [l for l in lines if '结果' in l]
+            print(f"✅ [扫描] {''.join(summary) if summary else '已更新'}")
+            return True
+        else:
+            print(f"❌ [扫描] 失败: {result.stderr[:300]}")
+            return False
+    except Exception as e:
+        print(f"❌ [扫描] 异常: {e}")
+        return False
+
+
+def auto_rescan():
+    """后台线程：每 30 分钟自动重新扫描"""
+    while True:
+        time.sleep(SCAN_INTERVAL)
+        print(f"\n🔄 [自动扫描] 开始...")
+        run_scanner()
 
 
 # ─── 路由 ────────────────────────────────────────────
@@ -72,7 +120,23 @@ def ping():
     return jsonify(ok=True)
 
 
+@app.route('/rescan', methods=['POST'])
+def manual_rescan():
+    """手动触发重新扫描"""
+    ok = run_scanner()
+    return jsonify(ok=ok)
+
+
 # ─── 启动 ────────────────────────────────────────────
+
+# 启动时先扫描一次生成最新 index.html
+print("🔧 [启动] 初始扫描...")
+run_scanner()
+
+# 启动自动扫描后台线程
+scan_thread = threading.Thread(target=auto_rescan, daemon=True)
+scan_thread.start()
+print(f"⏰ 自动扫描: 每 {SCAN_INTERVAL // 60} 分钟刷新模型列表")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7890))
@@ -81,6 +145,6 @@ if __name__ == '__main__':
     print(f"📁 模型目录: {MODELS_DIR}")
     print(f"📁 STL缓存: {STL_CACHE_DIR}")
     mf_count = len(list(Path(MODELS_DIR).rglob('*.3mf')))
-    stl_count = len(list(Path(STL_CACHE_DIR).rglob('*.3mf'))) if os.path.isdir(STL_CACHE_DIR) else 0
+    stl_count = len(list(Path(STL_CACHE_DIR).rglob('*.stl'))) if os.path.isdir(STL_CACHE_DIR) else 0
     print(f"📦 模型: {mf_count} 个 3MF, 预转换: {stl_count} 个")
     app.run(host='0.0.0.0', port=port, debug=False)
