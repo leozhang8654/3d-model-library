@@ -110,7 +110,7 @@ h1{text-align:center;font-size:2.2em;margin-bottom:8px;background:linear-gradien
     <button onclick="closeViewer()">关闭</button>
   </div>
 </div>
-<p class="update-info">最后更新: 2026-02-16 01:47 · 通过 <a href="http://127.0.0.1:7890" style="color:#667eea">本地服务器</a> 打开以启用3D预览</p>
+<p class="update-info">最后更新: 2026-02-16 01:54 · 通过 <a href="http://127.0.0.1:7890" style="color:#667eea">本地服务器</a> 打开以启用3D预览</p>
 <script>
 const models = [
   {
@@ -327,6 +327,7 @@ function renderTags(){
 }
 
 // ─── 3D 查看器 ───
+const isServed=location.protocol==='http:'||location.protocol==='https:';
 let v3scene,v3camera,v3renderer,v3controls,v3raf,v3currentFile='',v3fromIdx=-1;
 const SERVER=location.origin;
 let v3libs=null; // 延迟加载 Three.js
@@ -356,7 +357,7 @@ function openFile(idx,e){
     return;
   }
   const fp=getFilePath(m);
-  if(location.protocol==='http:'){
+  if(isServed){
     showViewer(fp,m.title+' - '+m.files[0]);
   }else{
     showModal(idx,e);
@@ -518,7 +519,7 @@ function showModal(idx, e){
   document.getElementById('modalCat').textContent=catIcons[m.category]+' '+m.category;
   const fl=document.getElementById('modalFiles');
   fl.innerHTML='';
-  const isHttp=location.protocol==='http:';
+  const isHttp=isServed;
   m.files.forEach(fn=>{
     const ext=fn.split('.').pop().toUpperCase();
     const li=document.createElement('li');
@@ -592,7 +593,7 @@ function setCat(c){activeCat=c;renderTags();handleSearch()}
 
 // ─── 自动生成 3D 缩略图 ───
 async function autoThumbnails(){
-  if(location.protocol!=='http:')return;
+  if(!isServed)return;
   const imgs=document.querySelectorAll('img[data-autothumb]');
   if(!imgs.length)return;
 
